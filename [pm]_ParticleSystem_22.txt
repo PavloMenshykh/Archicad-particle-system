@@ -1,0 +1,174 @@
+!main list of values and global parameters
+!=========================================
+
+DIM iCoords[][6]
+minSpeed = mspeed/100
+rangeOfMotion = rfall
+zMult = rectangularity/100
+
+!basic hotspots
+!==============
+HOTSPOT 0, 0, 0
+HOTSPOT A, 0, 0
+HOTSPOT 0, B, 0
+HOTSPOT A, B, 0 
+HOTSPOT 0, 0, ZZYZX
+HOTSPOT A, 0, ZZYZX
+HOTSPOT 0, B, ZZYZX
+HOTSPOT A, B, ZZYZX
+HOTSPOT 0, 0, -rfall
+HOTSPOT A, 0, -rfall
+HOTSPOT 0, B, -rfall
+HOTSPOT A, B, -rfall
+
+!to prevent accidental too intensive calculation, change stop parameters at your own risk
+!========================================================================================
+if density > 7500 then density = 7500
+if density > 500 then fboolean = 0
+
+if pframe[1] = 0 AND GLOB_FRAME_NR = -1 then
+	FRAME_NR = 0
+	mStep = 1							!set default value
+else
+	if GLOB_FRAME_NR <> -1 AND animate <> 0 then
+		FRAME_NR = GLOB_FRAME_NR
+		mStep = rangeOfMotion/(GLOB_LAST_FRAME*0.5)
+	else
+		FRAME_NR = pframe[1]
+		mStep = rangeOfMotion/(pframe[2]*0.5) 			
+	endif
+endif
+
+!generate an array of point data to use in animation and stills
+!==============================================================
+
+counter = 1
+
+WHILE counter <= density DO
+	flag = 0								!if the point should be filtered
+	s = size/2+RND(size)					!set drop size
+	x = RND(A)-(s/2)						!offset for centering
+	y = RND(B)-(s/2)						!offset for centering
+
+	!randomly filter points furthest away from center
+	!================================================
+	if rdensity <> 0 then
+		testX = ABS(((x/A)*100)-50)
+		testY = ABS(((y/B)*100)-50)
+		if testX > RND(50) or testY > RND(50) then 
+			flag = 1
+		else 
+			flag = 0
+		endif	
+	endif	
+	
+	if rdensity = 0 or flag = 0 then
+		z = RND(ZZYZX)-(s/2)					!offset for centering
+		v = minSpeed+RND(mVelocity-minSpeed)	!velocity coof
+		n = CEIL((rfall+z)/(mStep*v))			!cnt of divisions
+	
+		iCoords[counter][1] = x
+		iCoords[counter][2] = y
+		iCoords[counter][3] = z
+		iCoords[counter][4] = v
+		iCoords[counter][5] = n
+		iCoords[counter][6] = s
+		
+		counter = counter + 1
+	endif
+ENDWHILE
+
+!Main logic
+!==========
+
+for i=1 to VARDIM1 (iCoords)
+	rndRot = RND(360)
+
+	if cycle <> 0 then
+		mulCoof = FRAME_NR % iCoords[i][5]
+		if mulCoof = 0 and GLOB_FRAME_NR <> -1 then mulCoof = iCoords[i][5]			
+
+		zVal = iCoords[i][3]-((mulCoof)*mStep)*iCoords[i][4] !to fall
+	else
+		zVal = iCoords[i][3]-((FRAME_NR)*mStep)*iCoords[i][4] !to fall
+	endif
+	
+	if zVal < -rfall then 
+		zVal = -rfall
+	endif
+	
+	!move rotation pivot to the center
+	!=================================
+	offsetRotX = SIN(rndRot)*iCoords[i][6]-(iCoords[i][6]*(SIN(rndRot)+COS(rndRot))-iCoords[i][6])/2
+	offsetRotY = (-(SIN(rndRot)*iCoords[i][6])-(COS(rndRot)*iCoords[i][6])+iCoords[i][6])/2
+
+	!add sine wave movement for a percentage of drops
+	!================================================
+	if waves <> 0 AND RND(1) > 0.5 AND zVal > -rfall then
+		amplitude = iCoords[i][6]*(10+RND(10))
+		speedMult = 5
+		offsetRotX = offsetRotX + amplitude*(SIN(FRAME_NR*speedMult))
+		offsetRotY = offsetRotY + amplitude*(COS(FRAME_NR*speedMult))
+	endif
+
+	ADD iCoords[i][1]+offsetRotX, iCoords[i][2]+offsetRotY, zVal			
+	ROTZ rndRot
+	BLOCK iCoords[i][6], iCoords[i][6], iCoords[i][6]*zMult
+	DEL 2
+
+	!to keep the drops on the ground if they fell
+	!============================================
+
+	if keepdrops <> 0 AND iCoords[i][3]-((FRAME_NR)*mStep)*iCoords[i][4] < -rfall then
+		if fboolean <> 0 then
+			grpName = STR(i, 8, 0)
+			PUT i
+			GROUP grpName
+		endif
+
+			if buildup <> 0 then
+				layCnt = CEIL(FRAME_NR / iCoords[i][5])		!sort of a floor division
+				rndSize = iCoords[i][6]*(layCnt**(1.0/3))	!get cube root of n of pileups to sum volume
+				sizeOffset = (rndSize-iCoords[i][6])/2
+
+				!move rotation pivot to the center and offset for the size change
+				!================================================================
+				offsetRotXD = SIN(rndRot)*rndSize-(rndSize*(SIN(rndRot)+COS(rndRot))-rndSize)/2
+				offsetRotYD = (-(SIN(rndRot)*rndSize)-(COS(rndRot)*rndSize)+rndSize)/2
+
+				ADD offsetRotXD-sizeOffset, offsetRotYD-sizeOffset, 0		
+			else 
+				rndSize = iCoords[i][6]
+			endif
+	
+				ADD iCoords[i][1], iCoords[i][2], -rfall
+				ROTZ rndRot
+				BLOCK rndSize, rndSize, rndSize
+				DEL 2
+	
+			if buildup <> 0 then
+				DEL 1
+			endif
+
+		if fboolean <> 0 then ENDGROUP
+	endif
+next i
+
+!to merge the drops that fell together VERY COMPUTATIONALLY INTENSIVE !!!!
+!=========================================================================
+
+if fboolean <> 0 then
+	if NSP = 1 then PLACEGROUP STR(GET(1), 8, 0)
+	
+	if NSP >= 2 then 
+		unionName = ADDGROUP(STR(GET(1), 8, 0), STR(GET(1), 8, 0))
+	
+		WHILE NSP > 0 DO
+			unionName = ADDGROUP(unionName, STR(GET(1), 8, 0))
+		ENDWHILE
+	
+		PLACEGROUP unionName
+	endif
+endif
+
+END
